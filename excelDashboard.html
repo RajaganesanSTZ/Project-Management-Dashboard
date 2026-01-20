@@ -53,7 +53,6 @@
 
         :root {
             /* Light Theme - Professional Palette */
-            /* Light Theme - Professional Palette */
             --primary: #198754;
             /* Custom Green */
             --primary-hover: #157347;
@@ -221,10 +220,14 @@
             border-color: var(--primary);
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover,
+        .btn-primary:focus,
+        .btn-primary:active {
             background: var(--primary-hover);
             border-color: var(--primary-hover);
+            color: white;
             box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+            outline: none;
         }
 
         .btn-white {
@@ -380,6 +383,8 @@
             justify-content: space-between;
             transition: background-color 0.3s ease;
         }
+
+
 
         /* Desktop Nav Styles */
         @media (min-width: 1025px) {
@@ -1231,6 +1236,57 @@
             margin: 0;
             padding-left: 20px;
         }
+
+        /* Responsive Date Filter Fix */
+        .date-filter-box {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-body);
+            padding: 0.3rem 0.8rem;
+            border-radius: 99px;
+            border: 1px solid var(--border);
+            flex-wrap: wrap;
+            /* Safety */
+        }
+
+        @media (max-width: 768px) {
+            .controls-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .date-filter-box {
+                width: 100%;
+                justify-content: space-between;
+                margin-top: 0.5rem;
+            }
+
+            .date-filter-box input[type="date"] {
+                flex: 1;
+                min-width: 0;
+                /* Allow shrinking */
+            }
+
+            .search-wrapper {
+                width: 100%;
+                max-width: none;
+                flex: none;
+            }
+
+            #dynamic-filters {
+                width: 100%;
+                justify-content: space-between;
+                /* Spread filters */
+            }
+
+            /* Make multi-selects full width on mobile or sharing space */
+            .multi-select-container {
+                flex: 1;
+                min-width: 48%;
+                /* 2 per row approx */
+            }
+        }
     </style>
 </head>
 
@@ -2079,10 +2135,8 @@
                 const saveBtn = document.getElementById('saveBtn');
                 currentTableId = tableId; // Cache it
                 if (tableId) {
-                    saveBtn.innerHTML = '<i class="fa-solid fa-cloud"></i> Auto-Sync Active';
-                    saveBtn.className = 'btn btn-white';
-                    saveBtn.title = "Changes are saved automatically to OneDrive.";
-                    saveBtn.disabled = false; // Enable it so it looks active (though click does nothing special)
+                    // Auto-Sync is active: User requested to remove this button
+                    saveBtn.classList.add('hidden');
                 } else {
                     saveBtn.innerHTML = '<i class="fa-solid fa-lock"></i> Read Only (Editing Disabled)';
                     saveBtn.className = 'btn btn-danger-ghost';
@@ -2184,7 +2238,9 @@
 
         function saveAndDownload() {
             if (mode === 'cloud') {
-                return; // Auto-sync is handled in Cloud mode
+                // Auto-sync is active. Clicking this button should NOT download the file.
+                // Optionally, we could provide a small feedback like "Synced" but for now, we just prevent download.
+                return;
             }
             if (!rawData || rawData.length === 0) { alert("No data to save."); return; }
             showLoader(true);
@@ -2473,7 +2529,7 @@
                         const today = new Date(); today.setHours(0, 0, 0, 0);
                         if (isNaN(rDate.getTime()) || rDate >= today) return false;
 
-                        const validStatuses = ['YET TO START', 'DEV IN-PROGRESS', 'DEV COMPLETED'];
+                        const validStatuses = ['YET TO START', 'DEV IN-PROGRESS'];
                         if (!validStatuses.some(s => String(rowStatus).toUpperCase().includes(s))) return false;
                     }
                 }
@@ -2521,7 +2577,6 @@
             updateStats(filteredData);
             updateCharts(filteredData);
             renderTable(filteredData);
-            renderTable(filteredData);
         }
 
         // --- DYNAMIC THEME ENGINE ---
@@ -2566,7 +2621,10 @@
             if (b > 255) b = 255; else if (b < 0) b = 0;
             let g = (num & 0x0000FF) + amt;
             if (g > 255) g = 255; else if (g < 0) g = 0;
-            return (usePound ? "#" : "") + (g | (b << 8) | (r << 16)).toString(16);
+
+            // Fix: Ensure 6 digits
+            const hex = (g | (b << 8) | (r << 16)).toString(16).padStart(6, '0');
+            return (usePound ? "#" : "") + hex;
         }
         function renderTable(data) {
             const total = data.length;
@@ -2800,7 +2858,7 @@
                 layout: { padding: 10 }
             };
 
-            // 1. STATUS BREAKDOWN
+            // 1. STATUS BREAKDOWN (Doughnut -> 3D feel with clean borders and cutouts)
             if (charts.status) charts.status.destroy();
             const ctxS = document.getElementById('chartStatus').getContext('2d');
             charts.status = new Chart(ctxS, {
@@ -2810,13 +2868,16 @@
                     datasets: [{
                         data: Object.values(sCounts),
                         backgroundColor: Object.keys(sCounts).map(s => getColorForStatus(s)),
-                        borderWidth: 0,
-                        hoverOffset: 6
+                        borderColor: isDark ? '#1e293b' : '#ffffff',
+                        borderWidth: 2,
+                        hoverOffset: 20, // Increased for more aggressive 3D pop on hover
+                        borderRadius: 5,
+                        spacing: 2
                     }]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    cutout: '65%',
+                    cutout: '60%',
                     plugins: {
                         legend: {
                             position: 'right',
@@ -2828,16 +2889,29 @@
                             }
                         }
                     },
-                    layout: { padding: 10 }
+                    layout: { padding: 20 }
                 }
             });
 
-            // 2. APPS DISTRIBUTION
+            // Helper for 3D Bar Gradients
+            const create3dBarGradient = (ctx, color) => {
+                const gradient = ctx.createLinearGradient(0, 0, 200, 0); // Horizontal gradient for fullness
+                // Simple version: Base color to lighter version
+                // Since we have hex colors, we might need a simple logic or just use transparency
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(0.6, color);
+                gradient.addColorStop(1, 'rgba(255,255,255,0.3)'); // Highlight edge
+                return gradient;
+            };
+
+            // 2. APPS DISTRIBUTION (Bar -> Rounded 3D Bars)
             if (charts.apps) charts.apps.destroy();
             const ctxA = document.getElementById('chartApps').getContext('2d');
-            let gradA = ctxA.createLinearGradient(0, 0, 0, 300);
-            gradA.addColorStop(0, palette.primary); // Use Dynamic
-            gradA.addColorStop(1, isDark ? palette.primaryTransparent : palette.primaryTransparent); // Hex opacity 10
+
+            // Create a rich gradient for the bars
+            let gradA = ctxA.createLinearGradient(0, 0, 0, 400);
+            gradA.addColorStop(0, palette.primary);
+            gradA.addColorStop(1, palette.primaryTransparent);
 
             charts.apps = new Chart(ctxA, {
                 type: 'bar',
@@ -2847,8 +2921,9 @@
                         label: 'Tasks',
                         data: Object.values(aCounts),
                         backgroundColor: gradA,
-                        hoverBackgroundColor: palette.primary,
-                        borderRadius: 6,
+                        borderRadius: 8,
+                        hoverBackgroundColor: palette.primary, // "Lights up" to solid primary color on hover
+                        borderWidth: { top: 0, right: 0, bottom: 0, left: 0 },
                         barPercentage: 0.6
                     }]
                 },
@@ -2858,52 +2933,58 @@
                         y: {
                             beginAtZero: true,
                             grid: { color: gridColor, drawBorder: false },
-                            ticks: { color: textColor, font: { family: 'Inter' } }
+                            ticks: { color: textColor, font: { size: 11 } },
+                            border: { display: false }
                         },
                         x: {
                             grid: { display: false },
-                            ticks: { color: textColor, font: { family: 'Inter' } }
+                            ticks: { color: textColor, font: { size: 11 } },
+                            border: { display: false }
                         }
-                    }
+                    },
+                    plugins: { legend: { display: false } }
                 }
             });
 
-            // 3. OWNER WORKLOAD (Line/Area)
+            // 3. OWNER WORKLOAD (Horizontal Bar -> 3D Cylinders)
             if (charts.owner) charts.owner.destroy();
             const ctxO = document.getElementById('chartOwner').getContext('2d');
-            let gradO = ctxO.createLinearGradient(0, 0, 0, 300);
-            gradO.addColorStop(0, palette.primary);
-            gradO.addColorStop(1, isDark ? palette.primaryTransparent : palette.primaryTransparent);
+
+            const ownerLabels = Object.keys(oCounts);
+            const ownerData = Object.values(oCounts);
+
+            // Generate distinct colors for owners for visual pop
+            const ownerColors = ownerLabels.map((_, i) => {
+                const colors = [palette.blue, palette.violet, palette.emerald, palette.amber, palette.cyan, palette.rose];
+                return colors[i % colors.length];
+            });
 
             charts.owner = new Chart(ctxO, {
-                type: 'line',
+                type: 'bar', // Horizontal bar via indexAxis
                 data: {
-                    labels: Object.keys(oCounts),
+                    labels: ownerLabels,
                     datasets: [{
                         label: 'Tasks',
-                        data: Object.values(oCounts),
-                        borderColor: palette.emerald,
-                        borderWidth: 2,
-                        backgroundColor: gradO,
-                        fill: true,
-                        tension: 0.4,
-                        pointBackgroundColor: palette.bg,
-                        pointBorderColor: palette.emerald,
-                        pointBorderWidth: 2,
-                        pointRadius: 4,
-                        pointHoverRadius: 6
+                        data: ownerData,
+                        backgroundColor: ownerColors,
+                        borderRadius: 20,
+                        hoverBackgroundColor: ownerColors.map(c => c.replace('cc', '')), // Remove opacity on hover = brighter
+                        borderSkipped: false,
+                        barThickness: 20
                     }]
                 },
                 options: {
+                    indexAxis: 'y',
                     ...commonOptions,
                     scales: {
-                        y: {
-                            grid: { color: gridColor, drawBorder: false, borderDash: [5, 5] },
-                            ticks: { color: textColor, font: { family: 'Inter' } }
-                        },
                         x: {
+                            display: false, // Clean look
+                            grid: { display: false }
+                        },
+                        y: {
                             grid: { display: false },
-                            ticks: { color: textColor, font: { family: 'Inter' } }
+                            ticks: { color: textColor, font: { size: 11, weight: '500' } },
+                            border: { display: false }
                         }
                     }
                 }
@@ -2922,21 +3003,28 @@
                 });
 
                 let gradT = ctxT.createLinearGradient(0, 0, 0, 300);
-                gradT.addColorStop(0, palette.cyan);
-                gradT.addColorStop(1, isDark ? 'rgba(34, 211, 238, 0.1)' : 'rgba(8, 145, 178, 0.1)');
+                gradT.addColorStop(0, palette.indigo);
+                gradT.addColorStop(1, 'rgba(99, 102, 241, 0.0)'); // Fade to transparent
 
                 charts.timeline = new Chart(ctxT, {
-                    type: 'bar',
+                    type: 'line',
                     data: {
-                        labels: displayLabels,
+                        labels: displayLabels, // Use formatted labels
                         datasets: [{
-                            label: 'Deadlines',
-                            data: roundedMonths.map(k => tCounts[k]),
+                            label: 'Deadline Volume',
+                            data: roundedMonths.map(d => tCounts[d]),
+                            borderColor: palette.indigo,
                             backgroundColor: gradT,
-                            borderColor: palette.cyan,
-                            borderWidth: 1,
-                            borderRadius: 6,
-                            barPercentage: 0.6
+                            borderWidth: 3,
+                            pointBackgroundColor: palette.bg,
+                            pointBorderColor: palette.indigo,
+                            pointBorderWidth: 2,
+                            pointRadius: 6,
+                            pointHoverRadius: 10, // Significantly larger on hover
+                            pointHoverBackgroundColor: palette.indigo, // Solid color on hover
+                            pointHoverBorderWidth: 4,
+                            fill: true,
+                            tension: 0.4 // Smooth curve
                         }]
                     },
                     options: {
@@ -2945,13 +3033,19 @@
                             y: {
                                 beginAtZero: true,
                                 grid: { color: gridColor, drawBorder: false },
-                                ticks: { color: textColor, font: { family: 'Inter' } }
+                                ticks: { color: textColor, font: { size: 10 } },
+                                border: { display: false }
                             },
                             x: {
                                 grid: { display: false },
-                                ticks: { color: textColor, font: { family: 'Inter' } }
+                                ticks: { color: textColor, font: { size: 10 } },
+                                border: { display: false }
                             }
-                        }
+                        },
+                        interaction: {
+                            intersect: false,
+                            mode: 'index',
+                        },
                     }
                 });
             }
@@ -3406,6 +3500,9 @@
                 setTimeout(() => { preloader.remove(); }, 500);
             }
             document.body.style.opacity = '1';
+
+            document.body.style.opacity = '1';
+            // Removed 3D Tilt Init - Replaced with Cleaner CSS Hover effects
         });
     </script>
 </body>
